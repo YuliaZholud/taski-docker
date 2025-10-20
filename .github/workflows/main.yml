@@ -1,34 +1,70 @@
-# .github/workflows/main.yml
+# Название workflow — так он будет отображаться во вкладке Actions
 name: Main Taski workflow
 
+# Указываем, когда запускать этот workflow:
+# — при каждом push в ветку main
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
+  # Название джоба — может быть любым, тут 'tests'
   tests:
-    # Разворачиваем окружение:
+    # GitHub будет выполнять всё на виртуальной машине с Ubuntu
     runs-on: ubuntu-latest
 
+    # 📦 Дополнительные сервисы — здесь поднимаем контейнер с PostgreSQL
+    services:
+      postgres:
+        # Используем официальный образ Postgres версии 13.10
+        image: postgres:13.10
+        # Задаём переменные окружения для контейнера БД
+        env:
+          POSTGRES_USER: django_user        # имя пользователя БД
+          POSTGRES_PASSWORD: django_password # пароль
+          POSTGRES_DB: django_db            # имя тестовой БД
+        # Пробрасываем порт с контейнера на хост
+        ports:
+          - 5432:5432
+        # ⏳ Проверка готовности сервиса перед запуском тестов
+        options: >-
+          --health-cmd "pg_isready -U django_user -d django_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
-    # Копируем код проекта
-    - name: Check out code
-      uses: actions/checkout@v3
-    # Устанавливаем Python с помощью action
-    - name: Set up Python
-      uses: actions/setup-python@v4
-    # В action setup-python@v4 передаём параметр — версию Python
-      with:
-        python-version: 3.12
-    # Обновляем pip, устанавливаем flake8 и flake8-isort, 
-    # устанавливаем зависимости проекта
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip setuptools
-        pip install flake8==6.0.0 flake8-isort==6.0.0
-    # Запускаем flake8
-    - name: Test with flake8
-      # Вызываем flake8 и указываем ему,
-      # что нужно проверить файлы только в папке backend/
-      run: python -m flake8 backend/
+      # 1️⃣ Копируем репозиторий в рабочую директорию раннера
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      # 2️⃣ Устанавливаем Python 3.12 в раннер
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      # 3️⃣ Устанавливаем все зависимости для линтера и проекта
+      - name: Install dependencies
+        run: |
+          # Обновляем pip и инструменты сборки
+          python -m pip install --upgrade pip setuptools wheel
+          # Ставим линтеры
+          pip install flake8==6.0.0 flake8-isort==6.0.0
+          # Ставим зависимости проекта из requirements.txt
+          pip install -r ./backend/requirements.txt
+
+      # 4️⃣ Запускаем линтер flake8, чтобы проверить стиль кода
+      - name: Lint with flake8
+        run: python -m flake8 backend/
+
+      # 5️⃣ Запускаем Django-тесты, указав параметры для подключения к Postgres
+      - name: Run Django tests
+        working-directory: backend    # запускаем из папки backend
+        env:
+          POSTGRES_USER: django_user        # те же переменные, что и для контейнера
+          POSTGRES_PASSWORD: django_password
+          POSTGRES_DB: django_db
+          DB_HOST: 127.0.0.1                # хост — это локалхост (порт проброшен)
+          DB_PORT: 5432                     # порт контейнера
+        run: python manage.py test          # команда запуска тестов Django
